@@ -22,37 +22,44 @@ public class PhotoOpportunity
     public float positionMargin = 0.5f;
     [Range(0f, 0.2f)] public float zoomMargin = 0.1f;
 
+    [Header("Orientation")]
+    public bool requirePortrait = false;
+
     [Header("Photo Scene Layout")]
     public Sprite textCardSprite;
     public Vector2 photoPosition;
     public Vector2 textCardPosition;
 
-    public bool IsMatch(Vector2 position, float zoom)
+    public bool IsMatch(Vector2 position, float zoom, bool isPortrait)
     {
         float xMin = Mathf.Min(minPosition.x, maxPosition.x);
         float xMax = Mathf.Max(minPosition.x, maxPosition.x);
         float yMin = Mathf.Min(minPosition.y, maxPosition.y);
         float yMax = Mathf.Max(minPosition.y, maxPosition.y);
 
-        bool positionMatch = position.x >= xMin && position.x <= xMax &&
-                             position.y >= yMin && position.y <= yMax;
-        bool zoomMatch = zoom >= minZoom - 0.01f && zoom <= maxZoom + 0.01f;
-        return positionMatch && zoomMatch;
+        bool positionMatch    = position.x >= xMin && position.x <= xMax &&
+                                position.y >= yMin && position.y <= yMax;
+        bool zoomMatch        = zoom >= minZoom - 0.01f && zoom <= maxZoom + 0.01f;
+        bool orientationMatch = isPortrait == requirePortrait;
+
+        return positionMatch && zoomMatch && orientationMatch;
     }
 
-    public bool IsNear(Vector2 position, float zoom)
+    public bool IsNear(Vector2 position, float zoom, bool isPortrait)
     {
         float xMin = Mathf.Min(minPosition.x, maxPosition.x);
         float xMax = Mathf.Max(minPosition.x, maxPosition.x);
         float yMin = Mathf.Min(minPosition.y, maxPosition.y);
         float yMax = Mathf.Max(minPosition.y, maxPosition.y);
 
-        bool positionNear = position.x >= xMin - positionMargin &&
-                            position.x <= xMax + positionMargin &&
-                            position.y >= yMin - positionMargin &&
-                            position.y <= yMax + positionMargin;
-        bool zoomNear = zoom >= minZoom - zoomMargin && zoom <= maxZoom + zoomMargin;
-        return positionNear && zoomNear;
+        bool positionNear     = position.x >= xMin - positionMargin &&
+                                position.x <= xMax + positionMargin &&
+                                position.y >= yMin - positionMargin &&
+                                position.y <= yMax + positionMargin;
+        bool zoomNear         = zoom >= minZoom - zoomMargin && zoom <= maxZoom + zoomMargin;
+        bool orientationMatch = isPortrait == requirePortrait;
+
+        return positionNear && zoomNear && orientationMatch;
     }
 }
 
@@ -64,7 +71,8 @@ public class CameraFrame : MonoBehaviour
     [SerializeField] private Camera _mainCamera;
     [SerializeField] private Camera _frameCamera;
     [SerializeField] private RawImage _frameDisplay;
-    [SerializeField] private Image _frameOverlay;      // UI Image on Sort Order 1 canvas
+    [SerializeField] private Image _landscapeOverlay;
+    [SerializeField] private Image _portraitOverlay;
 
     [Header("Movement Settings")]
     [SerializeField] private float followSpeed = 15f;
@@ -77,6 +85,10 @@ public class CameraFrame : MonoBehaviour
     [SerializeField] private float zoomSpeed = 0.3f;
     [SerializeField] private float zoomSmoothSpeed = 8f;
 
+    [Header("Rotation Settings")]
+    [SerializeField] private float rotationSpeed = 3f;
+    [SerializeField] private float rotationZoomResetSpeed = 0.5f; 
+
     [Header("Photo Opportunities")]
     [SerializeField] private PhotoOpportunity[] photoOpportunities;
 
@@ -86,9 +98,23 @@ public class CameraFrame : MonoBehaviour
     [SerializeField] private Color nearZoneColor = Color.yellow;
     [SerializeField] private Color inZoneColor   = Color.green;
 
-    // State
+    // Frame state
     private enum FrameState { Hidden, SlidingIn, Active, SlidingOut }
     private FrameState _state = FrameState.Hidden;
+
+    // Orientation
+    private enum Orientation { Landscape, Portrait }
+    private Orientation _orientation = Orientation.Landscape;
+
+    // Rotation state machine
+    private enum RotationState { Idle, ResettingZoom, Rotating }
+    private RotationState _rotationState = RotationState.Idle;
+    private bool _isRotating = false;
+
+    private float _currentRotation = 0f;
+    private float _targetRotation  = 0f;
+    private const float LandscapeRotation = 0f;
+    private const float PortraitRotation  = 90f;
 
     private Vector2 _currentPosition;
     private Vector3 _originalScale;
@@ -96,8 +122,8 @@ public class CameraFrame : MonoBehaviour
     // Slide
     private float _slideProgress = 0f;
     private float _slideStartX;
-    private float _slideCenterX = 0f;
-    private const float SlideOffscreenPadding = 1f;
+    private float _slideCenterX  = 0f;
+    private const float SlideOffscreenPadding = 3f;
 
     // Zoom
     private float _defaultFrameOrthoSize;
@@ -110,6 +136,10 @@ public class CameraFrame : MonoBehaviour
     private bool _isFrozen                = false;
     private bool _justActivatedViewfinder = false;
     private RenderTexture _frameRenderTexture;
+    private float _frameBoundsWidth;
+    private float _frameBoundsHeight;
+    private Orientation _targetOrientation; 
+    public bool IsFrozenForTransition = false;
 
     private void Start()
     {
@@ -119,22 +149,26 @@ public class CameraFrame : MonoBehaviour
         _originalScale       = transform.localScale;
         _mainCameraOrthoSize = _mainCamera.orthographicSize;
 
-        Bounds bounds          = _frameSpriteRenderer.bounds;
-        _defaultFrameOrthoSize = bounds.size.y / 2f;
-        _targetFrameOrthoSize  = _defaultFrameOrthoSize;
+        Bounds bounds      = _frameSpriteRenderer.bounds;
+        _frameBoundsWidth  = bounds.size.x;
+        _frameBoundsHeight = bounds.size.y;
+
+        _defaultFrameOrthoSize        = _frameBoundsHeight / 2f;
+        _targetFrameOrthoSize         = _defaultFrameOrthoSize;
         _frameCamera.orthographicSize = _defaultFrameOrthoSize;
 
-        // Hide everything at start
+        _currentRotation = LandscapeRotation;
+        _targetRotation  = LandscapeRotation;
+        ApplyRotation(LandscapeRotation);
+
         _frameSpriteRenderer.enabled  = false;
         _cameraSpriteRenderer.enabled = false;
         _frameCamera.enabled          = false;
         _frameDisplay.enabled         = false;
-        _frameOverlay.enabled         = false;
+        _landscapeOverlay.enabled     = false;
+        _portraitOverlay.enabled      = false;
 
-        _frameSpriteRenderer.enabled  = false;
-        _cameraSpriteRenderer.enabled = false;
-
-        PositionOffscreenLeft();
+        PositionOffscreenRight();
     }
 
     private void Update()
@@ -143,7 +177,8 @@ public class CameraFrame : MonoBehaviour
 
         HandleInput();
 
-        if (_state != FrameState.Hidden)
+        // Scroll zoom — only when visible, not rotating
+        if (_state != FrameState.Hidden && !_isRotating)
         {
             float scroll = Mouse.current.scroll.ReadValue().y;
             if (scroll == 0f)
@@ -168,6 +203,9 @@ public class CameraFrame : MonoBehaviour
             _currentZoom = _frameCamera.orthographicSize / _defaultFrameOrthoSize;
         }
 
+        if (_isRotating)
+            UpdateRotation();
+
         switch (_state)
         {
             case FrameState.SlidingIn:  UpdateSlideIn();  break;
@@ -180,6 +218,13 @@ public class CameraFrame : MonoBehaviour
             UpdateFrameCameraPosition();
             UpdateFrameCameraViewport();
         }
+
+        if (_state != FrameState.Hidden)
+        {
+            UpdateFrameCameraPosition();
+            if (!IsFrozenForTransition)
+                UpdateFrameCameraViewport();
+        }
     }
 
     // ── Input ────────────────────────────────────────────────────────────────
@@ -188,20 +233,30 @@ public class CameraFrame : MonoBehaviour
     {
         _justActivatedViewfinder = false;
 
+        bool canInteract = !_isRotating &&
+                           _state != FrameState.SlidingIn &&
+                           _state != FrameState.SlidingOut;
+
         if (Mouse.current.leftButton.wasPressedThisFrame &&
-            (_state == FrameState.Hidden || _state == FrameState.SlidingOut))
+            _state == FrameState.Hidden && !_isRotating)
         {
             StartSlideIn();
             _justActivatedViewfinder = true;
         }
 
         if (Mouse.current.rightButton.wasPressedThisFrame &&
-            (_state == FrameState.Active || _state == FrameState.SlidingIn))
+            _state == FrameState.Active && !_isRotating)
         {
             StartSlideOut();
         }
 
-        if (_state == FrameState.Active &&
+        if (Mouse.current.middleButton.wasPressedThisFrame && canInteract &&
+            _state == FrameState.Active)
+        {
+            StartRotation();
+        }
+
+        if (_state == FrameState.Active && canInteract &&
             Mouse.current.leftButton.wasPressedThisFrame &&
             !_justActivatedViewfinder)
         {
@@ -209,14 +264,138 @@ public class CameraFrame : MonoBehaviour
         }
     }
 
+    // ── Rotation ─────────────────────────────────────────────────────────────
+
+    private void StartRotation()
+    {
+        _isRotating    = true;
+        _rotationState = RotationState.ResettingZoom;
+
+        // Target zoom reset
+        _targetFrameOrthoSize = _defaultFrameOrthoSize;
+
+        // Reset colors
+        _frameSpriteRenderer.color = defaultColor;
+        _landscapeOverlay.color    = defaultColor;
+        _portraitOverlay.color     = defaultColor;
+
+        // Store target orientation but DON'T apply it yet
+        if (_orientation == Orientation.Landscape)
+        {
+            _targetOrientation = Orientation.Portrait;
+            _targetRotation    = PortraitRotation;
+        }
+        else
+        {
+            _targetOrientation = Orientation.Landscape;
+            _targetRotation    = LandscapeRotation;
+        }
+        // _orientation stays unchanged until zoom reset is complete
+    }
+
+    private void UpdateRotation()
+    {
+        switch (_rotationState)
+        {
+            case RotationState.ResettingZoom:
+                _frameCamera.orthographicSize = Mathf.MoveTowards(
+                    _frameCamera.orthographicSize,
+                    _defaultFrameOrthoSize,
+                    rotationZoomResetSpeed * Time.deltaTime
+                );
+                _currentZoom = _frameCamera.orthographicSize / _defaultFrameOrthoSize;
+
+                if (Mathf.Approximately(_frameCamera.orthographicSize, _defaultFrameOrthoSize))
+                {
+                    _frameCamera.orthographicSize = _defaultFrameOrthoSize;
+                    _currentZoom = 1f;
+
+                    _orientation = _targetOrientation;
+
+                    _landscapeOverlay.enabled = false;
+                    _portraitOverlay.enabled  = false;
+                    _frameDisplay.enabled     = false;
+
+                    _rotationState = RotationState.Rotating;
+                }
+                break;
+
+            case RotationState.Rotating:
+                _currentRotation = Mathf.MoveTowards(
+                    _currentRotation,
+                    _targetRotation,
+                    rotationSpeed * 60f * Time.deltaTime
+                );
+
+                ApplyRotation(_currentRotation);
+
+                if (Mathf.Approximately(_currentRotation, _targetRotation))
+                {
+                    _currentRotation = _targetRotation;
+                    ApplyRotation(_currentRotation);
+
+                    UpdateFrameCameraOrthoSize();
+
+                    if (_frameRenderTexture != null)
+                    {
+                        _frameCamera.targetTexture = null;
+                        _frameRenderTexture.Release();
+                        Destroy(_frameRenderTexture);
+                        _frameRenderTexture = null;
+                    }
+
+                    _frameDisplay.enabled = true;
+
+                    if (_orientation == Orientation.Portrait)
+                    {
+                        _portraitOverlay.enabled  = true;
+                        _landscapeOverlay.enabled = false;
+                    }
+                    else
+                    {
+                        _landscapeOverlay.enabled = true;
+                        _portraitOverlay.enabled  = false;
+                    }
+
+                    _rotationState = RotationState.Idle;
+                    _isRotating    = false;
+                }
+                break;
+        }
+    }
+
+    private void ApplyRotation(float degrees)
+    {
+        transform.rotation = Quaternion.Euler(0f, 0f, degrees);
+        // Frame camera never rotates — RawImage content always stays upright
+    }
+
+    private void UpdateFrameCameraOrthoSize()
+    {
+        if (_orientation == Orientation.Portrait)
+        {
+            _defaultFrameOrthoSize        = _frameBoundsWidth / 2f;
+            _targetFrameOrthoSize         = _defaultFrameOrthoSize;
+            _frameCamera.orthographicSize = _defaultFrameOrthoSize;
+        }
+        else
+        {
+            _defaultFrameOrthoSize        = _frameBoundsHeight / 2f;
+            _targetFrameOrthoSize         = _defaultFrameOrthoSize;
+            _frameCamera.orthographicSize = _defaultFrameOrthoSize;
+        }
+
+        _currentZoom = 1f;
+    }
+
     // ── Slide ────────────────────────────────────────────────────────────────
 
-    private void PositionOffscreenLeft()
+    private void PositionOffscreenRight()
     {
         float camHeight  = _mainCameraOrthoSize;
         float camWidth   = camHeight * ((float)Screen.width / Screen.height);
-        float frameHalfW = _frameSpriteRenderer.bounds.size.x / 2f;
-        _slideStartX     = -camWidth - frameHalfW - SlideOffscreenPadding;
+        float frameHalfW = _frameBoundsWidth / 2f;
+        _slideStartX     = camWidth + frameHalfW + SlideOffscreenPadding;
         transform.position = new Vector3(_slideStartX, 0f, transform.position.z);
     }
 
@@ -224,12 +403,23 @@ public class CameraFrame : MonoBehaviour
     {
         _state         = FrameState.SlidingIn;
         _slideProgress = 0f;
+        _slideCenterX  = 0f;
 
-        //_frameSpriteRenderer.enabled  = true;
+        // Always start in landscape
+        _orientation     = Orientation.Landscape;
+        _currentRotation = LandscapeRotation;
+        _targetRotation  = LandscapeRotation;
+        ApplyRotation(LandscapeRotation);
+
         _cameraSpriteRenderer.enabled = true;
         _frameCamera.enabled          = true;
         _frameDisplay.enabled         = true;
-        _frameOverlay.enabled         = true;
+        _landscapeOverlay.enabled     = true;
+        _portraitOverlay.enabled      = false;
+
+        _frameSpriteRenderer.color = defaultColor;
+        _landscapeOverlay.color    = defaultColor;
+        _portraitOverlay.color     = defaultColor;
 
         if (_frameRenderTexture != null)
         {
@@ -239,17 +429,29 @@ public class CameraFrame : MonoBehaviour
             _frameRenderTexture = null;
         }
 
+        // Reset to landscape ortho size
+        _defaultFrameOrthoSize        = _frameBoundsHeight / 2f;
         _frameCamera.orthographicSize = _defaultFrameOrthoSize;
         _targetFrameOrthoSize         = _defaultFrameOrthoSize;
         _currentZoom                  = 1f;
 
-        PositionOffscreenLeft();
+        PositionOffscreenRight();
     }
 
     private void StartSlideOut()
     {
         _state         = FrameState.SlidingOut;
-        _slideProgress = 1f - _slideProgress;
+        _slideProgress = 1f;
+
+        _frameSpriteRenderer.color = defaultColor;
+        _landscapeOverlay.color    = defaultColor;
+        _portraitOverlay.color     = defaultColor;
+
+        float camHeight  = _mainCameraOrthoSize;
+        float camWidth   = camHeight * ((float)Screen.width / Screen.height);
+        float frameHalfW = _frameBoundsWidth / 2f;
+        _slideStartX     = camWidth + frameHalfW + SlideOffscreenPadding;
+        _slideCenterX    = transform.position.x;
     }
 
     private void UpdateSlideIn()
@@ -278,12 +480,13 @@ public class CameraFrame : MonoBehaviour
         if (_slideProgress <= 0f)
         {
             transform.position            = new Vector3(_slideStartX, transform.position.y, transform.position.z);
-            //_frameSpriteRenderer.enabled  = false;
             _cameraSpriteRenderer.enabled = false;
             _frameCamera.enabled          = false;
             _frameDisplay.enabled         = false;
-            _frameOverlay.enabled         = false;
-            _state = FrameState.Hidden;
+            _landscapeOverlay.enabled     = false;
+            _portraitOverlay.enabled      = false;
+            _state        = FrameState.Hidden;
+            _slideCenterX = 0f;
         }
     }
 
@@ -291,6 +494,9 @@ public class CameraFrame : MonoBehaviour
 
     private void UpdateActive()
     {
+        if (_isRotating) return;
+        if (IsFrozenForTransition) return;  // add this
+
         Vector2 mousePos       = Mouse.current.position.ReadValue();
         Vector3 targetPosition = GetClampedPosition(mousePos);
 
@@ -308,6 +514,8 @@ public class CameraFrame : MonoBehaviour
 
     private void UpdateFrameCameraPosition()
     {
+        if (IsFrozenForTransition) return;
+
         _frameCamera.transform.position = new Vector3(
             transform.position.x,
             transform.position.y,
@@ -317,38 +525,53 @@ public class CameraFrame : MonoBehaviour
 
     private void UpdateFrameCameraViewport()
     {
-        Bounds bounds = _frameSpriteRenderer.bounds;
+        Vector2 screenCenter = _mainCamera.WorldToScreenPoint(transform.position);
 
-        Vector2 screenMin = _mainCamera.WorldToScreenPoint(bounds.min);
-        Vector2 screenMax = _mainCamera.WorldToScreenPoint(bounds.max);
+        // Use correct dimensions per orientation
+        float worldW = _orientation == Orientation.Portrait ? _frameBoundsHeight : _frameBoundsWidth;
+        float worldH = _orientation == Orientation.Portrait ? _frameBoundsWidth  : _frameBoundsHeight;
 
-        float width  = screenMax.x - screenMin.x;
-        float height = screenMax.y - screenMin.y;
+        Vector2 worldRef   = _mainCamera.WorldToScreenPoint(
+            (Vector3)((Vector2)transform.position + new Vector2(worldW / 2f, worldH / 2f))
+        );
+        float screenWidth  = (worldRef.x - screenCenter.x) * 2f;
+        float screenHeight = (worldRef.y - screenCenter.y) * 2f;
 
-        // Position RawImage to match frame sprite bounds on screen
+        float left   = screenCenter.x - screenWidth  / 2f;
+        float bottom = screenCenter.y - screenHeight / 2f;
+
+        // RawImage — always axis-aligned, never rotated
         RectTransform rt    = _frameDisplay.rectTransform;
         rt.pivot            = new Vector2(0f, 0f);
         rt.anchorMin        = Vector2.zero;
         rt.anchorMax        = Vector2.zero;
-        rt.anchoredPosition = new Vector2(screenMin.x, screenMin.y);
-        rt.sizeDelta        = new Vector2(width, height);
+        rt.anchoredPosition = new Vector2(left, bottom);
+        rt.sizeDelta        = new Vector2(screenWidth, screenHeight);
+        rt.localRotation    = Quaternion.identity;
 
-        // Position frame overlay Image to exactly match RawImage — stays fixed, no zoom
-        RectTransform overlayRt    = _frameOverlay.rectTransform;
-        overlayRt.pivot            = new Vector2(0f, 0f);
-        overlayRt.anchorMin        = Vector2.zero;
-        overlayRt.anchorMax        = Vector2.zero;
-        overlayRt.anchoredPosition = new Vector2(screenMin.x, screenMin.y);
-        overlayRt.sizeDelta        = new Vector2(width, height);
+        // Landscape overlay
+        RectTransform landscapeRt    = _landscapeOverlay.rectTransform;
+        landscapeRt.pivot            = new Vector2(0.5f, 0.5f);
+        landscapeRt.anchorMin        = Vector2.zero;
+        landscapeRt.anchorMax        = Vector2.zero;
+        landscapeRt.anchoredPosition = new Vector2(screenCenter.x, screenCenter.y);
+        landscapeRt.sizeDelta        = new Vector2(screenWidth, screenHeight);
+        landscapeRt.localRotation    = Quaternion.identity;
 
-        // Update zone indicator color on overlay instead of sprite
-        _frameOverlay.color = _frameSpriteRenderer.color;
+        // Portrait overlay
+        RectTransform portraitRt    = _portraitOverlay.rectTransform;
+        portraitRt.pivot            = new Vector2(0.5f, 0.5f);
+        portraitRt.anchorMin        = Vector2.zero;
+        portraitRt.anchorMax        = Vector2.zero;
+        portraitRt.anchoredPosition = new Vector2(screenCenter.x, screenCenter.y);
+        portraitRt.sizeDelta        = new Vector2(screenWidth, screenHeight);
+        portraitRt.localRotation    = Quaternion.identity;
 
-        // Create render texture once at frame pixel size
+        // Create render texture once — recreated after orientation change
         if (_frameRenderTexture == null)
         {
-            int texW = Mathf.Max(1, Mathf.RoundToInt(width));
-            int texH = Mathf.Max(1, Mathf.RoundToInt(height));
+            int texW = Mathf.Max(1, Mathf.RoundToInt(screenWidth));
+            int texH = Mathf.Max(1, Mathf.RoundToInt(screenHeight));
 
             _frameRenderTexture        = new RenderTexture(texW, texH, 24);
             _frameCamera.targetTexture = _frameRenderTexture;
@@ -368,8 +591,14 @@ public class CameraFrame : MonoBehaviour
         );
         worldPos.z = transform.position.z;
 
-        float halfW = _frameSpriteRenderer.bounds.size.x / 2f;
-        float halfH = _frameSpriteRenderer.bounds.size.y / 2f;
+        // Swap dimensions in portrait since frame is rotated 90°
+        float halfW = _orientation == Orientation.Portrait
+            ? _frameBoundsHeight / 2f
+            : _frameBoundsWidth  / 2f;
+
+        float halfH = _orientation == Orientation.Portrait
+            ? _frameBoundsWidth  / 2f
+            : _frameBoundsHeight / 2f;
 
         worldPos.x = Mathf.Clamp(worldPos.x, -camWidth  + halfW,  camWidth  - halfW);
         worldPos.y = Mathf.Clamp(worldPos.y, -camHeight + halfH, camHeight - halfH);
@@ -381,9 +610,11 @@ public class CameraFrame : MonoBehaviour
 
     private void TryTakePhoto()
     {
+        bool isPortrait = _orientation == Orientation.Portrait;
+
         foreach (PhotoOpportunity opportunity in photoOpportunities)
         {
-            if (opportunity.IsMatch(_currentPosition, _currentZoom))
+            if (opportunity.IsMatch(_currentPosition, _currentZoom, isPortrait))
             {
                 StartCoroutine(CaptureAndLoad(opportunity));
                 return;
@@ -398,35 +629,83 @@ public class CameraFrame : MonoBehaviour
         PhotoDataStore.Instance.TextCardSprite      = opportunity.textCardSprite;
         PhotoDataStore.Instance.PhotoPosition       = opportunity.photoPosition;
         PhotoDataStore.Instance.TextCardPosition    = opportunity.textCardPosition;
+        PhotoDataStore.Instance.IsPortrait          = _orientation == Orientation.Portrait;
 
-        _isFrozen                     = true;
-        //_frameSpriteRenderer.enabled  = false;
-        _cameraSpriteRenderer.enabled = false;
-        _frameOverlay.enabled         = false;
+        // Lock all input immediately
+        _isFrozen = true;
 
+        // Hide frame overlays only — keep camera sprite visible
+        _landscapeOverlay.enabled = false;
+        _portraitOverlay.enabled  = false;
+
+        // Capture screenshot
         yield return new WaitForEndOfFrame();
-
         Texture2D screenshot = CaptureScreenshot();
         PhotoDataStore.Instance.LastPhoto = screenshot;
 
-        //_frameSpriteRenderer.enabled  = true;
-        _cameraSpriteRenderer.enabled = true;
-        _frameOverlay.enabled         = true;
+        // Play shutter and load
+        ShutterClose shutter = FindFirstObjectByType<ShutterClose>();
+        if (shutter != null)
+            yield return StartCoroutine(shutter.PlayAndLoad(
+                opportunity.sceneToLoad,
+                _frameCamera,
+                _frameCamera.orthographicSize
+            ));
+        else
+            SceneManager.LoadScene(opportunity.sceneToLoad);
+    }
 
-        yield return new WaitForSeconds(shutterFreezeTime);
+    private IEnumerator ZoomIntoFrame()
+    {
+        float startSize = _mainCamera.orthographicSize;
+        float endSize   = _frameCamera.orthographicSize;
 
-        SceneManager.LoadScene(opportunity.sceneToLoad);
+        Vector3 startPos = _mainCamera.transform.position;
+        Vector3 endPos   = new Vector3(
+            transform.position.x,
+            transform.position.y,
+            _mainCamera.transform.position.z
+        );
+
+        float progress = 0f;
+        float speed    = 1.5f;
+
+        while (progress < 1f)
+        {
+            progress += speed * Time.deltaTime;
+            progress  = Mathf.Clamp01(progress);
+
+            float eased = Mathf.SmoothStep(0f, 1f, progress);
+
+            _mainCamera.orthographicSize  = Mathf.Lerp(startSize, endSize,   eased);
+            _mainCamera.transform.position = Vector3.Lerp(startPos, endPos, eased);
+
+            yield return null;
+        }
+
+        _mainCamera.orthographicSize   = endSize;
+        _mainCamera.transform.position = endPos;
     }
 
     private Texture2D CaptureScreenshot()
     {
-        Bounds bounds     = _frameSpriteRenderer.bounds;
-        Vector2 screenMin = _mainCamera.WorldToScreenPoint(bounds.min);
-        Vector2 screenMax = _mainCamera.WorldToScreenPoint(bounds.max);
+        Vector2 screenCenter = _mainCamera.WorldToScreenPoint(transform.position);
 
-        int width  = Mathf.RoundToInt(screenMax.x - screenMin.x);
-        int height = Mathf.RoundToInt(screenMax.y - screenMin.y);
+        float worldW = _orientation == Orientation.Portrait ? _frameBoundsHeight : _frameBoundsWidth;
+        float worldH = _orientation == Orientation.Portrait ? _frameBoundsWidth  : _frameBoundsHeight;
 
+        Vector2 worldRef   = _mainCamera.WorldToScreenPoint(
+            (Vector3)((Vector2)transform.position + new Vector2(worldW / 2f, worldH / 2f))
+        );
+        float screenWidth  = (worldRef.x - screenCenter.x) * 2f;
+        float screenHeight = (worldRef.y - screenCenter.y) * 2f;
+
+        int width  = Mathf.Max(1, Mathf.RoundToInt(screenWidth));
+        int height = Mathf.Max(1, Mathf.RoundToInt(screenHeight));
+
+        Debug.Log($"Screenshot size: {width}x{height}, center: {screenCenter}");
+
+        // Render frame camera into a temp texture
         RenderTexture rt           = new RenderTexture(width, height, 24);
         _frameCamera.targetTexture = rt;
         _frameCamera.Render();
@@ -436,6 +715,11 @@ public class CameraFrame : MonoBehaviour
         photo.ReadPixels(new Rect(0, 0, width, height), 0, 0);
         photo.Apply();
 
+        // Check if pixels are black
+        Color[] pixels = photo.GetPixels();
+        Debug.Log($"First pixel: {pixels[0]}, Center pixel: {pixels[pixels.Length / 2]}");
+
+        // Restore frame camera render texture
         _frameCamera.targetTexture = _frameRenderTexture;
         RenderTexture.active       = null;
         Destroy(rt);
@@ -449,25 +733,36 @@ public class CameraFrame : MonoBehaviour
     {
         if (_frameSpriteRenderer == null) return;
 
-        bool inZone   = false;
-        bool nearZone = false;
+        if (_state != FrameState.Active || _isRotating)
+        {
+            _frameSpriteRenderer.color = defaultColor;
+            _landscapeOverlay.color    = defaultColor;
+            _portraitOverlay.color     = defaultColor;
+            return;
+        }
+
+        bool isPortrait = _orientation == Orientation.Portrait;
+        bool inZone     = false;
+        bool nearZone   = false;
 
         foreach (PhotoOpportunity opportunity in photoOpportunities)
         {
-            if (opportunity.IsMatch(_currentPosition, _currentZoom))
+            if (opportunity.IsMatch(_currentPosition, _currentZoom, isPortrait))
             {
                 inZone = true;
                 break;
             }
-            else if (opportunity.IsNear(_currentPosition, _currentZoom))
+            else if (opportunity.IsNear(_currentPosition, _currentZoom, isPortrait))
                 nearZone = true;
         }
 
         Color targetColor = inZone ? inZoneColor : (nearZone ? nearZoneColor : defaultColor);
 
-        // Apply color to both sprite and overlay
         _frameSpriteRenderer.color = Color.Lerp(
             _frameSpriteRenderer.color, targetColor, 10f * Time.deltaTime
         );
+
+        _landscapeOverlay.color = _frameSpriteRenderer.color;
+        _portraitOverlay.color  = _frameSpriteRenderer.color;
     }
 }

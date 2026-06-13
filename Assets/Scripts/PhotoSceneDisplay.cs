@@ -7,31 +7,17 @@ public class PhotoSceneDisplay : MonoBehaviour
     [SerializeField] private GameObject textCardObject;
 
     [Header("Display Settings")]
-    [SerializeField] private Vector2 photoSize = new Vector2(3f, 2f);
-    [SerializeField] private Vector2 textCardSize = new Vector2(3f, 2f);
-
-    private void Awake()
-    {
-        Debug.Log("PhotoSceneDisplay Awake fired.");
-        Debug.Log($"PhotoDataStore.Instance is null: {PhotoDataStore.Instance == null}");
-    }
+    [SerializeField] private Vector2 landscapePhotoSize = new Vector2(3f, 2f);
+    [SerializeField] private Vector2 portraitPhotoSize  = new Vector2(2f, 3f);
+    [SerializeField] private Vector2 textCardSize       = new Vector2(3f, 2f);
 
     private void Start()
     {
-        Debug.Log("PhotoSceneDisplay Start fired.");
-
         if (PhotoDataStore.Instance == null)
         {
-            Debug.LogError("PhotoDataStore Instance is NULL.");
+            Debug.LogError("PhotoDataStore.Instance is NULL.");
             return;
         }
-
-        Debug.Log($"LastPhoto null: {PhotoDataStore.Instance.LastPhoto == null}");
-        Debug.Log($"TextCardSprite null: {PhotoDataStore.Instance.TextCardSprite == null}");
-        Debug.Log($"PhotoPosition: {PhotoDataStore.Instance.PhotoPosition}");
-        Debug.Log($"TextCardPosition: {PhotoDataStore.Instance.TextCardPosition}");
-        Debug.Log($"photoObject null: {photoObject == null}");
-        Debug.Log($"textCardObject null: {textCardObject == null}");
 
         DisplayPhoto();
         DisplayTextCard();
@@ -39,25 +25,33 @@ public class PhotoSceneDisplay : MonoBehaviour
 
     private void DisplayPhoto()
     {
-        if (PhotoDataStore.Instance.LastPhoto == null) return;
+        if (PhotoDataStore.Instance.LastPhoto == null || photoObject == null) return;
 
         Texture2D originalPhoto = PhotoDataStore.Instance.LastPhoto;
+        bool isPortrait         = PhotoDataStore.Instance.IsPortrait;
+        Vector2 photoSize       = isPortrait ? portraitPhotoSize : landscapePhotoSize;
 
         // Copy into a new readable texture
-        Texture2D readablePhoto = new Texture2D(originalPhoto.width, originalPhoto.height, TextureFormat.RGB24, false);
+        Texture2D readablePhoto = new Texture2D(
+            originalPhoto.width,
+            originalPhoto.height,
+            TextureFormat.RGB24,
+            false
+        );
         readablePhoto.SetPixels(originalPhoto.GetPixels());
         readablePhoto.Apply();
 
-        GameObject photoObject = new GameObject("Photo");
-        SpriteRenderer sr = photoObject.AddComponent<SpriteRenderer>();
-        sr.sprite = Sprite.Create(
+        SpriteRenderer sr = photoObject.GetComponent<SpriteRenderer>();
+        if (sr == null) sr = photoObject.AddComponent<SpriteRenderer>();
+
+        sr.sprite           = Sprite.Create(
             readablePhoto,
             new Rect(0, 0, readablePhoto.width, readablePhoto.height),
             new Vector2(0.5f, 0.5f),
             100f
         );
-        sr.sortingLayerName = "Default";
-        sr.sortingOrder = 10;
+        sr.sortingLayerName = "AboveUI";
+        sr.sortingOrder     = 10;
 
         ScaleToSize(photoObject, readablePhoto.width, readablePhoto.height, photoSize);
 
@@ -67,34 +61,33 @@ public class PhotoSceneDisplay : MonoBehaviour
             0f
         );
 
-        Debug.Log($"Photo created at {photoObject.transform.position}, size: {readablePhoto.width}x{readablePhoto.height}");
+        Debug.Log($"Photo displayed — size: {readablePhoto.width}x{readablePhoto.height}, " +
+                $"position: {photoObject.transform.position}, " +
+                $"scale: {photoObject.transform.localScale}");
     }
 
-private void DisplayTextCard()
-{
-    if (PhotoDataStore.Instance.TextCardSprite == null) return;
+    private void DisplayTextCard()
+    {
+        if (PhotoDataStore.Instance.TextCardSprite == null || textCardObject == null) return;
 
-    Sprite textCard = PhotoDataStore.Instance.TextCardSprite;
+        SpriteRenderer sr = textCardObject.GetComponent<SpriteRenderer>();
+        if (sr == null) sr = textCardObject.AddComponent<SpriteRenderer>();
 
-    GameObject textCardObject = new GameObject("TextCard");
-    SpriteRenderer sr = textCardObject.AddComponent<SpriteRenderer>();
-    sr.sprite = textCard;
-    sr.sortingLayerName = "Picture";
-    sr.sortingOrder = 10;
+        sr.sprite = PhotoDataStore.Instance.TextCardSprite;
 
-    ScaleToSize(
-        textCardObject,
-        (int)textCard.rect.width,
-        (int)textCard.rect.height,
-        textCardSize
-    );
+        ScaleToSize(
+            textCardObject,
+            (int)PhotoDataStore.Instance.TextCardSprite.rect.width,
+            (int)PhotoDataStore.Instance.TextCardSprite.rect.height,
+            textCardSize
+        );
 
-    textCardObject.transform.position = new Vector3(
-        PhotoDataStore.Instance.TextCardPosition.x,
-        PhotoDataStore.Instance.TextCardPosition.y,
-        0f
-    );
-}
+        textCardObject.transform.position = new Vector3(
+            PhotoDataStore.Instance.TextCardPosition.x,
+            PhotoDataStore.Instance.TextCardPosition.y,
+            0f
+        );
+    }
 
     private Sprite Texture2DToSprite(Texture2D texture)
     {
