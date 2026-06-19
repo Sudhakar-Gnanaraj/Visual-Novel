@@ -947,6 +947,12 @@ MonoBehaviour:
   PhotoPosition: {x: -2.98, y: -0.01583}
   TextCardPosition: {x: 3.05, y: -0.01583}
   IsPortrait: 0
+  Body: 0
+  Mind: 0
+  Charisma: 0
+  PreviousScene: 
+  CurrentScene: 
+  DiaryEntries: []
 --- !u!4 &882581506
 Transform:
   m_ObjectHideFlags: 0
@@ -1544,7 +1550,10 @@ MonoBehaviour:
     positionMargin: 2
     zoomMargin: 0.2
     requirePortrait: 0
-    textCardSprite: {fileID: -5668518402485374812, guid: ece37a390361dff4c9374208c61d961a, type: 3}
+    bodyContribution: 0
+    mindContribution: 0
+    charismaContribution: 0
+    textCardSprite: {fileID: -6523183962901230866, guid: f73c7bc2b98a0f049854762f73c29c0e, type: 3}
     photoPosition: {x: -2.98, y: -0.01583}
     textCardPosition: {x: 3.05, y: -0.01583}
   - opportunityName: Plants
@@ -1556,6 +1565,9 @@ MonoBehaviour:
     positionMargin: 2
     zoomMargin: 0.2
     requirePortrait: 1
+    bodyContribution: 0
+    mindContribution: 0
+    charismaContribution: 0
     textCardSprite: {fileID: -5668518402485374812, guid: ece37a390361dff4c9374208c61d961a, type: 3}
     photoPosition: {x: -2.98, y: -0.01583}
     textCardPosition: {x: 3.05, y: -0.01583}
@@ -1722,7 +1734,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 5569977257535576499, guid: 5b19096534d9aa341b2d732f8cc04908, type: 3}
+  m_Sprite: {fileID: -7023568946802288539, guid: f1a3fa0c101239f4891a6de4f30ee849, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0

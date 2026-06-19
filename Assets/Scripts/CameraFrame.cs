@@ -25,6 +25,11 @@ public class PhotoOpportunity
     [Header("Orientation")]
     public bool requirePortrait = false;
 
+    [Header("Stats")]
+    public int bodyContribution;
+    public int mindContribution;
+    public int charismaContribution;
+
     [Header("Photo Scene Layout")]
     public Sprite textCardSprite;
     public Vector2 photoPosition;
@@ -631,20 +636,24 @@ public class CameraFrame : MonoBehaviour
         PhotoDataStore.Instance.TextCardPosition    = opportunity.textCardPosition;
         PhotoDataStore.Instance.IsPortrait          = _orientation == Orientation.Portrait;
 
-        // Lock all input immediately
-        _isFrozen = true;
+        PhotoDataStore.Instance.Body     += opportunity.bodyContribution;
+        PhotoDataStore.Instance.Mind     += opportunity.mindContribution;
+        PhotoDataStore.Instance.Charisma += opportunity.charismaContribution;
 
-        // Hide frame overlays only — keep camera sprite visible
+        PhotoDataStore.Instance.PreviousScene = SceneManager.GetActiveScene().name;
+
+        _isFrozen                 = true;
         _landscapeOverlay.enabled = false;
         _portraitOverlay.enabled  = false;
 
-        // Capture screenshot
         yield return new WaitForEndOfFrame();
         Texture2D screenshot = CaptureScreenshot();
         PhotoDataStore.Instance.LastPhoto = screenshot;
 
-        // Play shutter and load
-        ShutterClose shutter = FindFirstObjectByType<ShutterClose>();
+        // Add to diary
+        PhotoDataStore.Instance.AddDiaryEntry();
+
+        ShutterClose shutter = FindObjectOfType<ShutterClose>();
         if (shutter != null)
             yield return StartCoroutine(shutter.PlayAndLoad(
                 opportunity.sceneToLoad,

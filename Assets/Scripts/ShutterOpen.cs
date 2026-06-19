@@ -85,16 +85,19 @@ public class ShutterOpen : MonoBehaviour
     {
         yield return new WaitForSeconds(shutterDelay);
 
-        float progress = 0f;
+        float progress    = 0f;
+        float topStart    = 0f;
+        float topEnd      =  _screenHeight / 2f;
+        float bottomStart = 0f;
+        float bottomEnd   = -_screenHeight / 2f;
 
         Vector2 aStart, aEnd, bStart, bEnd;
 
-        // Portrait opens left/right, landscape opens top/bottom
         if (isPortrait)
         {
-            aStart = new Vector2( 0f,              0f);
+            aStart = new Vector2( 0f,               0f);
             aEnd   = new Vector2(-_screenWidth / 2f, 0f);
-            bStart = new Vector2( 0f,              0f);
+            bStart = new Vector2( 0f,               0f);
             bEnd   = new Vector2( _screenWidth / 2f, 0f);
         }
         else
@@ -143,5 +146,15 @@ public class ShutterOpen : MonoBehaviour
 
         _diaryCamera.orthographicSize   = zoomEndSize;
         _diaryCamera.transform.position = endPos;
+
+        // Enable all buttons after animation completes
+        DiaryDisplay diaryDisplay = FindObjectOfType<DiaryDisplay>();
+        if (diaryDisplay != null)
+            diaryDisplay.EnableButtons();
+
+        // Enable DiarySceneManager continue button
+        DiarySceneManager diarySceneManager = FindObjectOfType<DiarySceneManager>();
+        if (diarySceneManager != null)
+            diarySceneManager.EnableContinueButton();
     }
 }
