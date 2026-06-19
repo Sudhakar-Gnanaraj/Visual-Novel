@@ -1,6 +1,9 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+// Define enum outside the class so all scripts can access it
+public enum DiaryEntryReason { Photo, Escape }
+
 [System.Serializable]
 public class DiaryEntry
 {
@@ -16,7 +19,6 @@ public class PhotoDataStore : MonoBehaviour
 {
     public static PhotoDataStore Instance;
 
-    // Current photo data
     public Texture2D LastPhoto;
     public string LastOpportunityName;
     public Sprite TextCardSprite;
@@ -24,16 +26,15 @@ public class PhotoDataStore : MonoBehaviour
     public Vector2 TextCardPosition;
     public bool IsPortrait;
 
-    // Cumulative stats
     public int Body;
     public int Mind;
     public int Charisma;
 
-    // Scene tracking
     public string PreviousScene;
     public string CurrentScene;
 
-    // Diary entries
+    public DiaryEntryReason EntryReason;
+
     public List<DiaryEntry> DiaryEntries = new List<DiaryEntry>();
 
     private void Awake()
@@ -52,13 +53,33 @@ public class PhotoDataStore : MonoBehaviour
     {
         DiaryEntry entry = new DiaryEntry
         {
-            photo           = LastPhoto,
-            textCard        = TextCardSprite,
-            opportunityName = LastOpportunityName,
-            isPortrait      = IsPortrait,
-            photoPosition   = PhotoPosition,
+            photo            = LastPhoto,
+            textCard         = TextCardSprite,
+            opportunityName  = LastOpportunityName,
+            isPortrait       = IsPortrait,
+            photoPosition    = PhotoPosition,
             textCardPosition = TextCardPosition
         };
         DiaryEntries.Add(entry);
+    }
+
+    public void ResetAll()
+    {
+        LastPhoto           = null;
+        LastOpportunityName = string.Empty;
+        TextCardSprite      = null;
+        PhotoPosition       = Vector2.zero;
+        TextCardPosition    = Vector2.zero;
+        IsPortrait          = false;
+
+        Body     = 0;
+        Mind     = 0;
+        Charisma = 0;
+
+        PreviousScene = string.Empty;
+        CurrentScene  = string.Empty;
+        EntryReason   = DiaryEntryReason.Photo;
+
+        DiaryEntries.Clear();
     }
 }

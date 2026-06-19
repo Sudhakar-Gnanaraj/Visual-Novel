@@ -35,6 +35,8 @@ public class PhotoOpportunity
     public Vector2 photoPosition;
     public Vector2 textCardPosition;
 
+
+
     public bool IsMatch(Vector2 position, float zoom, bool isPortrait)
     {
         float xMin = Mathf.Min(minPosition.x, maxPosition.x);
@@ -103,6 +105,18 @@ public class CameraFrame : MonoBehaviour
     [SerializeField] private Color nearZoneColor = Color.yellow;
     [SerializeField] private Color inZoneColor   = Color.green;
 
+    [Header("Tutorial Mode")]
+    [SerializeField] private bool _isTutorialMode = false;
+    [SerializeField] private TutorialPhotoDisplay _tutorialPhotoDisplay;
+    [SerializeField] private LayerMask _frameCameraIgnoreLayers; 
+
+    public bool IsSliding          => _state == FrameState.SlidingIn || _state == FrameState.SlidingOut;
+    public bool IsRotating         => _isRotating;
+    public bool IsFrozen           => _isFrozen;
+    public bool IsViewfinderActive => _state == FrameState.Active || 
+                                    _state == FrameState.SlidingIn || 
+                                    _state == FrameState.SlidingOut;
+
     // Frame state
     private enum FrameState { Hidden, SlidingIn, Active, SlidingOut }
     private FrameState _state = FrameState.Hidden;
@@ -150,6 +164,12 @@ public class CameraFrame : MonoBehaviour
     {
         if (_mainCamera == null)
             _mainCamera = Camera.main;
+
+        if (_isTutorialMode && _frameCamera != null)
+        {
+            // Remove ignored layers from frame camera culling mask
+            _frameCamera.cullingMask &= ~_frameCameraIgnoreLayers;
+        }
 
         _originalScale       = transform.localScale;
         _mainCameraOrthoSize = _mainCamera.orthographicSize;
@@ -615,17 +635,43 @@ public class CameraFrame : MonoBehaviour
 
     private void TryTakePhoto()
     {
-        bool isPortrait = _orientation == Orientation.Portrait;
-
         foreach (PhotoOpportunity opportunity in photoOpportunities)
         {
-            if (opportunity.IsMatch(_currentPosition, _currentZoom, isPortrait))
+            if (opportunity.IsMatch(_currentPosition, _currentZoom, 
+                _orientation == Orientation.Portrait))
             {
-                StartCoroutine(CaptureAndLoad(opportunity));
+                if (_isTutorialMode)
+                    StartCoroutine(CaptureTutorialPhoto());
+                else
+                    StartCoroutine(CaptureAndLoad(opportunity));
                 return;
             }
         }
         Debug.Log("No match found.");
+    }
+
+    private IEnumerator CaptureTutorialPhoto()
+    {
+        _isFrozen                 = true;
+        _landscapeOverlay.enabled = false;
+        _portraitOverlay.enabled  = false;
+
+        yield return new WaitForEndOfFrame();
+
+        Texture2D screenshot = CaptureScreenshot();
+        bool isPortrait       = _orientation == Orientation.Portrait;
+
+        // Restore overlays
+        if (isPortrait)
+            _portraitOverlay.enabled  = true;
+        else
+            _landscapeOverlay.enabled = true;
+
+        _isFrozen = false;
+
+        // Show miniature photo
+        if (_tutorialPhotoDisplay != null)
+            _tutorialPhotoDisplay.ShowPhoto(screenshot, isPortrait);
     }
 
     private IEnumerator CaptureAndLoad(PhotoOpportunity opportunity)
@@ -635,6 +681,7 @@ public class CameraFrame : MonoBehaviour
         PhotoDataStore.Instance.PhotoPosition       = opportunity.photoPosition;
         PhotoDataStore.Instance.TextCardPosition    = opportunity.textCardPosition;
         PhotoDataStore.Instance.IsPortrait          = _orientation == Orientation.Portrait;
+        PhotoDataStore.Instance.EntryReason         = DiaryEntryReason.Photo;  // add this
 
         PhotoDataStore.Instance.Body     += opportunity.bodyContribution;
         PhotoDataStore.Instance.Mind     += opportunity.mindContribution;

@@ -35,6 +35,10 @@ public class DiaryDisplay : MonoBehaviour
     [SerializeField] private Vector2 portraitPhotoSize  = new Vector2(2f, 3f);
     [SerializeField] private Vector2 textCardSize       = new Vector2(3f, 2f);
 
+    public bool LeftButtonActive  => leftButtonObject  != null && leftButtonObject.activeSelf;
+    public bool RightButtonActive => rightButtonObject != null && rightButtonObject.activeSelf;
+
+
     private int _currentSpread   = 0;
     private bool _isTurning      = false;
     private bool _buttonsEnabled = false;
@@ -381,5 +385,17 @@ public class DiaryDisplay : MonoBehaviour
             targetSize.y / nativeHeight,
             1f
         );
+    }
+
+    public void SetButtonsInteractable(bool interactable)
+    {
+        if (leftButtonObject  != null) leftButtonObject.SetActive(interactable);
+        if (rightButtonObject != null) rightButtonObject.SetActive(interactable);
+    }
+
+    public void RestoreButtons(bool leftWasActive, bool rightWasActive)
+    {
+        if (leftButtonObject  != null) leftButtonObject.SetActive(leftWasActive);
+        if (rightButtonObject != null) rightButtonObject.SetActive(rightWasActive);
     }
 }
